@@ -21,6 +21,8 @@ Examples:
         map(...).
         ... etc
 
+See the specs: https://github.com/timcharper/acked-stream/tree/master/src/test/scala/com/timcharper/acked
+
 ## Supported operations
 
 The API mirrors the Akka Stream API where it is possible to positively correlate a stream element with an input element. AckedFlow and AckedSink are implemented and behave accordingly (where an AckedSink is responsible for message acknowledgmeent).
