@@ -2,6 +2,14 @@
 
 Author: Tim Harper
 
+## Installation
+
+Acknowledged Streams builds against akka-stream-experimental `1.0`.
+
+Add the following to `build.sbt`:
+
+    libraryDependencies += "com.timcharper" %% "acked-streams" % "1.0-RC1"
+
 ## Motivation
 
 TL; DR - http://tim.theenchanter.com/2015/07/the-need-for-acknowledgement-in-streams.html
