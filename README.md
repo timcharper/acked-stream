@@ -29,7 +29,7 @@ Examples:
         map(...).
         ... etc
 
-See the specs: https://github.com/timcharper/acked-stream/tree/master/src/test/scala/com/timcharper/acked
+See the [demo project](https://github.com/timcharper/acked-stream-demo), or the [acked-stream tests](https://github.com/timcharper/acked-stream/tree/master/src/test/scala/com/timcharper/acked).
 
 ## Supported operations
 
