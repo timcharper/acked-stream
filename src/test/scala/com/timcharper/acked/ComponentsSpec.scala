@@ -1,0 +1,88 @@
+package com.timcharper.acked
+
+import akka.stream.OverflowStrategy
+import scala.collection.mutable
+import akka.stream.scaladsl.Source
+import org.scalatest.{FunSpec, Matchers}
+import scala.concurrent.Promise
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Try,Success,Failure}
+
+class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
+  trait Fixtures {
+    implicit val materializer = akka.stream.ActorMaterializer()
+    val data = Stream.continually(Promise[Unit]).zip(Stream.continually(1 to 50).take(10).flatten).toList
+  }
+
+  describe("BundlingBuffer") {
+    it("bundles together items when back pressured") {
+      new Fixtures {
+
+        val seen = scala.collection.mutable.Set.empty[Int]
+
+        val f = AckedSource(data).
+          via(Components.bundlingBuffer(500, OverflowStrategy.fail)).
+          runFold(0) { (cnt, x) =>
+            Thread.sleep(x % 30L)
+            seen += x
+            cnt + 1
+          }
+
+        val count = await(f)
+
+        // 500 elements went into it. Significantly less should have made it through.
+        count should be < 100
+
+        // Every unique item should have made it through at least once.
+        seen.toList.sorted should be (1 to 50)
+
+        // Every promise should be acknowledged
+        for ( (p, i) <- data.map(_._1).zipWithIndex) {
+          p.future.isCompleted shouldBe true
+        }
+      }
+    }
+
+    it("doesn't bundle when items aren't backpressured") {
+      new Fixtures {
+        val f = AckedSource(data).
+          map { i => Thread.sleep(1); i }. /* putting a sleep here
+                                            makes the producer the
+                                            bottleneck. */
+          via(Components.bundlingBuffer(500, OverflowStrategy.fail)).
+          runFold(0) { (cnt, x) =>
+            cnt + 1
+          }
+
+        val count = await(f)
+
+        count shouldBe 500
+
+        for ( (p, i) <- data.map(_._1).zipWithIndex) {
+          p.future.isCompleted shouldBe true
+        }
+      }
+    }
+
+    it("drops new elements when buffer is overrun, failing the promises") {
+      new Fixtures {
+        var seen = mutable.Stack.empty[Int]
+        val f = AckedSource(data).
+          via(Components.bundlingBuffer(10, OverflowStrategy.dropHead)).
+          runForeach { n =>
+            Thread.sleep(10)
+            seen.push(n)
+          }
+
+        await(f)
+
+        seen.length should be < 100
+
+        val results = for (p <- data.map(_._1)) yield {
+          Try(await(p.future))
+        }
+        results.filter(_.isInstanceOf[Success[_]]).length shouldBe seen.length
+      }
+    }
+  }
+}

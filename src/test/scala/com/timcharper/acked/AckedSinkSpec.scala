@@ -1,12 +1,9 @@
 package com.timcharper.acked
 
-import akka.actor._
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.{Keep, Sink, Source}
 import org.scalatest.{FunSpec, Matchers}
-import scala.concurrent.{ExecutionContext, Future, Promise}
-import scala.concurrent.duration._
+import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 
 class AckedSinkSpec extends FunSpec with Matchers with ActorSystemTest {
