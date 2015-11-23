@@ -164,6 +164,46 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
         assertOperationCatches { (e, source) => source.mapConcat { n => throw e } }
       }
     }
+
+    describe("alsoTo") {
+      it("acknowledges elements after they've hit both sinks") {
+        implicit val materializer = ActorMaterializer(
+          ActorMaterializerSettings(actorSystem).
+            withSupervisionStrategy(Supervision.resumingDecider : Supervision.Decider))
+        val oddFailure = new Exception("odd")
+        val evenFailure = new Exception("even")
+        val rejectOdds = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 1)
+            throw(oddFailure)
+        }
+        val rejectEvens = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 0)
+            throw(evenFailure)
+        }
+        val (completions, result) = runLeTest(List(1,2)) { numbers =>
+          numbers.
+            alsoTo(rejectEvens).
+            runWith(rejectOdds)
+        }
+        completions shouldBe List(Some(Failure(oddFailure)), Some(Failure(evenFailure)))
+      }
+    }
+
+    describe("splitWhen") {
+      it("routes each element to a new acknowledged stream when the predicate matches") {
+        implicit val materializer = ActorMaterializer()
+        val (completions, result) = runLeTest(1 to 20) { src =>
+          src.
+            splitWhen(_ % 4 == 0).
+            map { src =>
+              src.runAck
+            }.
+            runFold(0) { case (r, _) => r + 1 }
+        }
+        completions.distinct.shouldBe(List(Some(Success(()))))
+        result shouldBe 6
+      }
+    }
   }
 
   it("stress test") {

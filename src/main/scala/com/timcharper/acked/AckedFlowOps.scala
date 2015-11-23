@@ -1,12 +1,14 @@
 package com.timcharper.acked
 
 import akka.event.LoggingAdapter
+import akka.stream.scaladsl.Keep
 import akka.stream.{Graph, Materializer, OverflowStrategy}
 import akka.stream.scaladsl.{Flow, Keep, RunnableGraph, Sink, Source}
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.{GenSeqLike, immutable}
 import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration._
+import scala.inline
 
 object RabbitFlowHelpers {
   // propagate exception, doesn't recover
@@ -38,6 +40,58 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
   import RabbitFlowHelpers.{propException, propFutureException}
 
   protected val wrappedRepr: WrappedRepr[Out, Mat]
+
+  /**
+    Concatenates this Flow with the given Source so the first element
+    emitted by that source is emitted after the last element of this
+    flow.
+
+    See FlowOps.++ in akka-stream
+    */
+  def ++[U >: Out, Mat2](that: AckedGraph[AckedSourceShape[U], Mat2]): Repr[U, Mat] =
+    andThen {
+      wrappedRepr.concat(that.akkaGraph)
+    }
+
+  /**
+    Concatenates this Flow with the given Source so the first element
+    emitted by that source is emitted after the last element of this
+    flow.
+
+    See FlowOps.concat in akka-stream
+    */
+  def concat[U >: Out, Mat2](that: AckedGraph[AckedSourceShape[U], Mat2]): Repr[U, Mat] =
+    andThen {
+      wrappedRepr.concat(that.akkaGraph)
+    }
+
+  def alsoTo(that: AckedGraph[AckedSinkShape[Out], _]): Repr[Out, Mat] =
+    alsoToMat(that)(Keep.left)
+
+  def alsoToMat[Mat2, Mat3](that: AckedGraph[AckedSinkShape[Out], Mat2])(matF: (Mat, Mat2) => Mat3): Repr[Out, Mat3] = {
+    implicit val ec = SameThreadExecutionContext
+    andThen {
+      val forking = wrappedRepr.map { case (p, data) =>
+        val l = Promise[Unit]
+        val r = Promise[Unit]
+        p.completeWith(l.future.flatMap { _ => r.future })
+        ((l, r), data)
+        // null
+      }
+      forking.
+        alsoToMat(
+          Flow[((Promise[Unit], Promise[Unit]), Out)].
+            map { case ((_, p), data) => (p, data) }.
+            toMat(that.akkaGraph)(Keep.right)
+        )(matF).
+        map { case ((p, _), data) => (p, data) }.
+        asInstanceOf[WrappedRepr[Out, Mat3]]
+    }
+  }
+
+  def completionTimeout(timeout: FiniteDuration): Repr[Out, Mat] =
+    andThen(wrappedRepr.completionTimeout(timeout))
+
   /**
     See FlowOps.collect in akka-stream
 
@@ -55,6 +109,98 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
         }
       }
     }
+
+  /**
+    * This operation applies the given predicate to all incoming
+    * elements and emits them to a stream of output streams, always
+    * beginning a new one with the current element if the given
+    * predicate returns true for it. This means that for the following
+    * series of predicate values, three substreams will be produced
+    * with lengths 1, 2, and 3:
+    *
+    * {{{
+    * false,             // element goes into first substream
+    * true, false,       // elements go into second substream
+    * true, false, false // elements go into third substream
+    * }}}
+    *
+    * In case the *first* element of the stream matches the predicate,
+    * the first substream emitted by splitWhen will start from that
+    * element. For example:
+    *
+    * {{{
+    * true, false, false // first substream starts from the split-by element
+    * true, false        // subsequent substreams operate the same way
+    * }}}
+    *
+    * If the split predicate `p` throws an exception and the
+    * supervision decision is [[akka.stream.Supervision.Stop]] the
+    * stream and substreams will be completed with failure.
+    *
+    * If the split predicate `p` throws an exception and the
+    * supervision decision is [[akka.stream.Supervision.Resume]] or
+    * [[akka.stream.Supervision.Restart]] the element is dropped and
+    * the stream and substreams continue.
+    *
+    * Exceptions thrown in predicate will be propagated via the
+    * acknowledgement channel
+    *
+    * '''Emits when''' an element for which the provided predicate is
+    * true, opening and emitting a new substream for subsequent
+    * element
+    *
+    * '''Backpressures when''' there is an element pending for the
+    * next substream, but the previous is not fully consumed yet, or
+    * the substream backpressures
+    *
+    * '''Completes when''' upstream completes
+    *
+    * '''Cancels when''' downstream cancels and substreams cancel
+    *
+    */
+  def splitWhen[U >: Out](predicate: (Out) ⇒ Boolean): wrappedRepr.Repr[AckedSource[U, Unit], Mat] = {
+    wrappedRepr.
+      splitWhen { case (promise, d) => propException(promise) { predicate(d) } }.
+      map { source => AckedSource(source) }
+  }
+
+  /**
+   * This operation applies the given predicate to all incoming elements and
+   * emits them to a stream of output streams. It *ends* the current substream when the
+   * predicate is true. This means that for the following series of predicate values,
+   * three substreams will be produced with lengths 2, 2, and 3:
+   *
+   * {{{
+   * false, true,        // elements go into first substream
+   * false, true,        // elements go into second substream
+   * false, false, true  // elements go into third substream
+   * }}}
+   *
+   * If the split predicate `p` throws an exception and the supervision decision
+   * is [[akka.stream.Supervision.Stop]] the stream and substreams will be completed
+   * with failure.
+   *
+   * If the split predicate `p` throws an exception and the supervision decision
+   * is [[akka.stream.Supervision.Resume]] or [[akka.stream.Supervision.Restart]]
+   * the element is dropped and the stream and substreams continue.
+   *
+   * '''Emits when''' an element passes through. When the provided predicate is true it emitts the element
+   * and opens a new substream for subsequent element
+   *
+   * '''Backpressures when''' there is an element pending for the next substream, but the previous
+   * is not fully consumed yet, or the substream backpressures
+   *
+   * '''Completes when''' upstream completes
+   *
+   * '''Cancels when''' downstream cancels and substreams cancel
+   *
+   * See also [[FlowOps.splitWhen]].
+   */
+  def splitAfter[U >: Out](predicate: (Out) ⇒ Boolean): wrappedRepr.Repr[AckedSource[U, Unit], Mat] = {
+    wrappedRepr.
+      splitAfter { case (promise, d) => propException(promise) { predicate(d) } }.
+      map { source => AckedSource(source) }
+  }
 
   /**
     See FlowOps.groupedWithin in akka-stream
@@ -140,7 +286,7 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
 
   /**
     Filters elements from the stream for which the predicate returns
-    true. Filtered items are acked.
+    false. Filtered items are acked.
 
     See FlowOps.filter in akka-stream
     */
@@ -151,6 +297,74 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
       result
     }
   }
+
+  /**
+    Filters elements from the stream for which the predicate returns
+    true. Filtered items are acked.
+
+    See FlowOps.filterNot in akka-stream
+    */
+  def filterNot(predicate: (Out) => Boolean): Repr[Out, Mat] = andThen {
+    wrappedRepr.filterNot { case (p, data) =>
+      val result = (propException(p)(predicate(data)))
+      if (result) p.success(())
+      result
+    }
+  }
+
+  /**
+    If the time between two processed elements exceed the provided
+    timeout, the stream is failed with a
+    scala.concurrent.TimeoutException.
+    */
+  def idleTimeout(timeout: FiniteDuration): Repr[Out, Mat] =
+    andThen(wrappedRepr.idleTimeout(timeout))
+
+  /**
+    Delays the initial element by the specified duration.
+    */
+  def initialDelay(delay: FiniteDuration): Repr[Out, Mat] =
+    andThen(wrappedRepr.initialDelay(delay))
+
+  /**
+    If the first element has not passed through this stage before the
+    provided timeout, the stream is failed with a
+    scala.concurrent.TimeoutException.
+    */
+  def initialTimeout(timeout: FiniteDuration): Repr[Out, Mat] =
+    andThen(wrappedRepr.initialTimeout(timeout))
+
+  /**
+    Intersperses stream with provided element, similar to how
+    scala.collection.immutable.List.mkString injects a separator
+    between a List's elements.
+    */
+  def intersperse[T >: Out](inject: T): Repr[T, Mat] =
+    andThen(wrappedRepr.intersperse((DummyPromise, inject)))
+
+  /**
+    Intersperses stream with provided element, similar to how
+    scala.collection.immutable.List.mkString injects a separator
+    between a List's elements.
+    */
+  def intersperse[T >: Out](start: T, inject: T, end: T): Repr[T, Mat] = {
+    andThen(
+      wrappedRepr.intersperse(
+        (DummyPromise, start),
+        (DummyPromise, inject),
+        (DummyPromise, end)))
+  }
+
+
+  /**
+    Injects additional elements if the upstream does not emit for a
+    configured amount of time.
+    */
+  def keepAlive[U >: Out](maxIdle: FiniteDuration, injectedElem: () ⇒ U): Repr[U, Mat] =
+    andThen {
+      wrappedRepr.
+        keepAlive(maxIdle, () => (DummyPromise, injectedElem()))
+    }
 
   /**
     See FlowOps.log in akka-stream
@@ -168,6 +382,32 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
       (p, propException(p)(f(d)))
     }
   }
+
+  /**
+    Merge the given Source to this Flow, taking elements as they
+    arrive from input streams, picking randomly when several elements
+    ready.
+    */
+  def mergeMat[U >: Out, Mat2, Mat3](that: AckedGraph[AckedSourceShape[U], Mat2])(matF: (Mat, Mat2) ⇒ Mat3): Repr[U, Mat3] =
+    andThen {
+      wrappedRepr.mergeMat(that.akkaGraph)(matF)
+    }
+
+  /**
+    Merge the given Source to this Flow, taking elements as they arrive from input streams, picking randomly when several elements ready.
+
+    Emits when one of the inputs has an element available
+
+    Backpressures when downstream backpressures
+
+    Completes when all upstreams complete
+
+    Cancels when downstream cancels
+    */
+  def merge[U >: Out](that: AckedGraph[AckedSourceShape[U], _]): Repr[U, Mat] =
+    andThen {
+      wrappedRepr.merge(that.akkaGraph)
+    }
 
   /**
     See FlowOps.mapAsync in akka-stream
@@ -220,6 +460,50 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
   }
 
   /**
+    Combine the elements of current flow and the given Source into a
+    stream of tuples.
+    */
+  def zipMat[U, Mat2, Mat3](that: AckedGraph[AckedSourceShape[U], Mat2])(matF: (Mat, Mat2) ⇒ Mat3): Repr[(Out, U), Mat3] = {
+    andThen {
+      wrappedRepr.
+        zipMat(that.akkaGraph)(matF).
+        map { case ((p1, d1), (p2, d2)) =>
+          p2.completeWith(p1.future)
+          (p1, (d1, d2))
+        }
+    }
+  }
+
+  /**
+    Combine the elements of current flow and the given Source into a
+    stream of tuples.
+    */
+  def zip[U](that: AckedGraph[AckedSourceShape[U], _]): Repr[(Out, U), Mat] =
+    zipMat(that)(Keep.left)
+
+  /**
+    Put together the elements of current flow and the given Source
+    into a stream of combined elements using a combiner function.
+    */
+  def zipWithMat[Out2, Out3, Mat2, Mat3](that: AckedGraph[AckedSourceShape[Out2], Mat2])(combine: (Out, Out2) ⇒ Out3)(matF: (Mat, Mat2) ⇒ Mat3): Repr[Out3, Mat3] = {
+    andThen {
+      wrappedRepr.zipWithMat(that.akkaGraph)({
+        case ((p1, d1), (p2, d2)) =>
+          p2.completeWith(p1.future)
+          (p1, propException(p1)(combine(d1, d2)))
+      })(matF)
+    }
+  }
+
+  /**
+    Put together the elements of current flow and the given Source
+    into a stream of combined elements using a combiner function.
+    */
+  def zipWith[Out2, Out3](that: AckedGraph[AckedSourceShape[Out2], _])(combine: (Out, Out2) ⇒ Out3): Repr[Out3, Mat] =
+    zipWithMat(that)(combine)(Keep.left)
+
+
+  /**
     See FlowOps.takeWithin in akka-stream
     */
   def takeWithin(d: FiniteDuration): Repr[Out, Mat] = andThen {
@@ -228,10 +512,17 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef {
 
   protected def andThen[U, Mat2](next: WrappedRepr[U, Mat2]): Repr[U, Mat2]
 
+  import scala.language.implicitConversions
+  import scala.language.existentials
   // The compiler needs a little bit of help to know that this conversion is possible
-  private implicit def collapse2to1[U, Mat2 >: Mat](next: wrappedRepr.Repr[_, _]#Repr[U, Mat2]): wrappedRepr.Repr[U, Mat2] = next.asInstanceOf[wrappedRepr.Repr[U, Mat2]]
-  private implicit def collapse2to0[U, Mat2 >: Mat](next: wrappedRepr.Repr[_, _]#Repr[AckTup[U], Mat2]): WrappedRepr[U, Mat2] = next.asInstanceOf[WrappedRepr[U, Mat2]]
-  implicit def collapse1to0[U, Mat2 >: Mat](next: wrappedRepr.Repr[AckTup[U], Mat2]): WrappedRepr[U, Mat2] = next.asInstanceOf[WrappedRepr[U, Mat2]]
+  @inline
+  private implicit def collapse2to1[U, Mat2](next: wrappedRepr.Repr[_, _]#Repr[U, Mat2]): wrappedRepr.Repr[U, Mat2] = next.asInstanceOf[wrappedRepr.Repr[U, Mat2]]
+
+  @inline
+  private implicit def collapse2to0[U, Mat2](next: wrappedRepr.Repr[_, _]#Repr[AckTup[U], Mat2]): WrappedRepr[U, Mat2] = next.asInstanceOf[WrappedRepr[U, Mat2]]
+
+  @inline
+  implicit def collapse1to0[U, Mat2](next: wrappedRepr.Repr[AckTup[U], Mat2]): WrappedRepr[U, Mat2] = next.asInstanceOf[WrappedRepr[U, Mat2]]
 
   // Combine all promises into one, such that the fulfillment of that promise fulfills the entire group
   private def andThenCombine[U, Mat2 >: Mat](next: wrappedRepr.Repr[immutable.Seq[AckTup[U]], Mat2]): Repr[immutable.Seq[U], Mat2] =
