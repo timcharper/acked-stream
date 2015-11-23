@@ -2,7 +2,7 @@ name := "acked-streams"
 
 organization := "com.timcharper"
 
-version := "1.0-RC1"
+version := "1.0"
 
 scalaVersion := "2.11.7"
 
