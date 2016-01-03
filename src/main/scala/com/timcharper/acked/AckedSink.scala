@@ -24,7 +24,7 @@ case class AckedSink[-In, +Mat](akkaSink: Graph[SinkShape[AckTup[In]], Mat]) ext
 case object MessageNacked extends Exception(s"A published message was nacked by the broker.")
 
 object AckedSink {
-  import RabbitFlowHelpers.propException
+  import FlowHelpers.propException
   def foreach[T](fn: T => Unit) = AckedSink[T, Future[Unit]] {
     Sink.foreach { case (p, data) =>
       propException(p) { fn(data) }

@@ -119,11 +119,12 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
       }
     }
 
-    describe("groupBy") {
-      it("catches exceptions and propagates them to the promise") {
-        assertOperationCatches { (e, source) => new AckedSource(source.groupBy { n => throw e })}
-      }
-    }
+    // NOCOMMIT
+    // describe("groupBy") {
+    //   it("catches exceptions and propagates them to the promise") {
+    //     assertOperationCatches { (e, source) => new AckedSource(source.groupBy { n => throw e })}
+    //   }
+    // }
 
     describe("conflate") {
       it("catches exceptions and propagates them to the promise") {
@@ -189,21 +190,49 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
       }
     }
 
-    describe("splitWhen") {
-      it("routes each element to a new acknowledged stream when the predicate matches") {
-        implicit val materializer = ActorMaterializer()
-        val (completions, result) = runLeTest(1 to 20) { src =>
-          src.
-            splitWhen(_ % 4 == 0).
-            map { src =>
-              src.runAck
-            }.
-            runFold(0) { case (r, _) => r + 1 }
+    describe("alsoToMat") {
+      it("acknowledges elements after they've hit both sinks") {
+        implicit val materializer = ActorMaterializer(
+          ActorMaterializerSettings(actorSystem).
+            withSupervisionStrategy(Supervision.resumingDecider : Supervision.Decider))
+        val oddFailure = new Exception("odd")
+        val evenFailure = new Exception("even")
+        val rejectOdds = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 1)
+            throw(oddFailure)
         }
-        completions.distinct.shouldBe(List(Some(Success(()))))
-        result shouldBe 6
+        val rejectEvens = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 0)
+            throw(evenFailure)
+        }
+        val (completions, result) = runLeTest(List(1,2)) { numbers =>
+          numbers.
+            alsoToMat(rejectEvens)(Keep.right).
+            toMat(rejectOdds) { (left, right) =>
+              left.flatMap(_ => right)(scala.concurrent.ExecutionContext.global)
+            }.
+            run()
+        }
+        completions shouldBe List(Some(Failure(oddFailure)), Some(Failure(evenFailure)))
       }
     }
+
+    // NOCOMMIT
+    // describe("splitWhen") {
+    //   it("routes each element to a new acknowledged stream when the predicate matches") {
+    //     implicit val materializer = ActorMaterializer()
+    //     val (completions, result) = runLeTest(1 to 20) { src =>
+    //       src.
+    //         splitWhen(_ % 4 == 0).
+    //         map { src =>
+    //           src.runAck
+    //         }.
+    //         runFold(0) { case (r, _) => r + 1 }
+    //     }
+    //     completions.distinct.shouldBe(List(Some(Success(()))))
+    //     result shouldBe 6
+    //   }
+    // }
   }
 
   it("stress test") {
