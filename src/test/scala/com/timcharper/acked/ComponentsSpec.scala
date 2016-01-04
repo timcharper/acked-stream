@@ -1,5 +1,6 @@
 package com.timcharper.acked
 
+import akka.stream.Attributes
 import akka.stream.OverflowStrategy
 import scala.collection.mutable
 import akka.stream.scaladsl.Source
@@ -7,6 +8,7 @@ import org.scalatest.{FunSpec, Matchers}
 import scala.concurrent.Promise
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Try,Success,Failure}
+import scala.concurrent.duration._
 
 class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
   trait Fixtures {
@@ -20,15 +22,17 @@ class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
 
         val seen = scala.collection.mutable.Set.empty[Int]
 
+        val sink = AckedSink.fold[Int, Int](0) { (cnt, x) =>
+          Thread.sleep(x % 30L)
+          seen += x
+          cnt + 1
+        }.withAttributes(Attributes.asyncBoundary)
+
         val f = AckedSource(data).
           via(Components.bundlingBuffer(500, OverflowStrategy.fail)).
-          runFold(0) { (cnt, x) =>
-            Thread.sleep(x % 30L)
-            seen += x
-            cnt + 1
-          }
+          runWith(sink)
 
-        val count = await(f)
+        val count = await(f, 20.seconds)
 
         // 500 elements went into it. Significantly less should have made it through.
         count should be < 100
@@ -46,21 +50,22 @@ class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
     it("doesn't bundle when items aren't backpressured") {
       new Fixtures {
         val f = AckedSource(data).
-          map { i => Thread.sleep(1); i }. /* putting a sleep here
-                                            makes the producer the
-                                            bottleneck. */
           via(Components.bundlingBuffer(500, OverflowStrategy.fail)).
-          runFold(0) { (cnt, x) =>
-            cnt + 1
-          }
+          runWith(
+            AckedSink.
+              fold[Int, Int](0) { (cnt, x) =>
+                println(s"runfold for $x")
+                cnt + 1
+              } // By not making the sink async (default with 2.0.1), we guarantee no backpressure will happen
+          )
 
         val count = await(f)
-
-        count shouldBe 500
 
         for ( (p, i) <- data.map(_._1).zipWithIndex) {
           p.future.isCompleted shouldBe true
         }
+        count shouldBe 500
+
       }
     }
 
@@ -69,10 +74,13 @@ class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
         var seen = mutable.Stack.empty[Int]
         val f = AckedSource(data).
           via(Components.bundlingBuffer(10, OverflowStrategy.dropHead)).
-          runForeach { n =>
-            Thread.sleep(10)
-            seen.push(n)
-          }
+          runWith(
+            AckedSink.
+              foreach[Int] { n =>
+                Thread.sleep(10)
+                seen.push(n)
+              }.
+              withAttributes(Attributes.asyncBoundary))
 
         await(f)
 

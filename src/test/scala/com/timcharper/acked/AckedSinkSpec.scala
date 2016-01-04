@@ -9,12 +9,12 @@ import scala.util.{Failure, Success, Try}
 class AckedSinkSpec extends FunSpec with Matchers with ActorSystemTest {
 
   describe("fold") {
-    it("acknowledges promises as they are folded in") {
+    it("acknowledges all promises after they are all folded in") {
       case class LeException(msg: String) extends Exception(msg)
       val input = (Stream.continually(Promise[Unit]) zip Range.inclusive(1, 5)).toList
       implicit val materializer = ActorMaterializer()
       Try(await(AckedSource(input).runWith(AckedSink.fold(0){ (reduce, e) =>
-        if(e == 4) throw LeException("dies here")
+        if(e == 4) throw LeException("error")
         e + reduce
       })))
       input.map { case (p, _) =>
@@ -23,7 +23,7 @@ class AckedSinkSpec extends FunSpec with Matchers with ActorSystemTest {
           case Success(_) => None
           case Failure(LeException(msg)) => Some(msg)
         }
-      } should be (Seq(None, None, None, Some("dies here"), Some("didn't complete")))
+      } should be (Seq(Some("error"), Some("error"), Some("error"), Some("error"), Some("didn't complete")))
     }
   }
 }

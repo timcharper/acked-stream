@@ -1,9 +1,7 @@
 package com.timcharper.acked
+
 import akka.stream._
-import akka.stream.scaladsl._
 import scala.annotation.unchecked.uncheckedVariance
-import scala.concurrent.Future
-import scala.concurrent.Promise
 
 trait AckedShape { self =>
   type Self <: AckedShape
@@ -19,6 +17,12 @@ trait AckedGraph[+S <: AckedShape, +M] {
   val akkaGraph: Graph[AkkaShape, M]
   def wrapShape(akkaShape: akkaGraph.Shape): shape.Self =
     shape.wrapShape(akkaShape)
+
+  def withAttributes(attr: Attributes): AckedGraph[S, M]
+
+  def named(name: String): AckedGraph[S, M] = withAttributes(Attributes.name(name))
+
+  def addAttributes(attr: Attributes): AckedGraph[S, M]
 }
 
 final class AckedSourceShape[+T](s: SourceShape[AckTup[T]]) extends AckedShape {
@@ -43,17 +47,4 @@ class AckedFlowShape[-I, +O](s: FlowShape[AckTup[I], AckTup[O]]) extends AckedSh
   val akkaShape = s
   def wrapShape(akkaShape: AkkaShape @uncheckedVariance): Self =
     new AckedFlowShape(akkaShape)
-}
-
-class AckedUniformFanOutShape[I, O](s: UniformFanOutShape[AckTup[I], AckTup[O]]) extends AckedShape {
-  type Self = AckedUniformFanOutShape[I, O] @uncheckedVariance
-  type AkkaShape = UniformFanOutShape[AckTup[I], AckTup[O]]
-  val akkaShape = s
-  def wrapShape(akkaShape: AkkaShape @uncheckedVariance): Self =
-    new AckedUniformFanOutShape(akkaShape)
-}
-
-class AckedBroadcast[T](g: Graph[UniformFanOutShape[AckTup[T], AckTup[T]], Unit]) extends AckedGraph[AckedUniformFanOutShape[T, T], Unit] {
-  val shape = new AckedUniformFanOutShape(g.shape)
-  val akkaGraph = g
 }
