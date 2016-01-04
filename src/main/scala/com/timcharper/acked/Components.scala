@@ -143,7 +143,7 @@ object Components {
             ctx.pull()
           }
         case _ ⇒
-          throw(new RuntimeException("BundlingBuffer unsuppored overflow strategy: ${overflowStrategy}. Bummer."))
+          throw(new RuntimeException(s"BundlingBuffer unsupported overflow strategy: ${overflowStrategy}."))
       }
     }
   }

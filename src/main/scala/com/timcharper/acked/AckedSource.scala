@@ -1,16 +1,22 @@
 package com.timcharper.acked
 
 import akka.pattern.pipe
+import akka.stream.Attributes
 import akka.stream.{Graph, Materializer}
 import akka.stream.scaladsl.{Keep, RunnableGraph, Source}
 import scala.annotation.tailrec
+import scala.annotation.unchecked.uncheckedVariance
 import scala.concurrent.{Future, Promise}
+import scala.language.implicitConversions
 
+class AckedSource[+Out, +Mat](val wrappedRepr: Source[AckTup[Out], Mat]) extends AckedFlowOpsMat[Out, Mat] with AckedGraph[AckedSourceShape[Out], Mat] {
+  type UnwrappedRepr[+O] = Source[O, Mat @uncheckedVariance]
+  type WrappedRepr[+O] = Source[AckTup[O], Mat @uncheckedVariance]
+  type Repr[+O] = AckedSource[O, Mat @uncheckedVariance]
 
-class AckedSource[+Out, +Mat](val wrappedRepr: Source[AckTup[Out], Mat]) extends AckedFlowOps[Out, Mat] with AckedGraph[AckedSourceShape[Out], Mat] {
-  type UnwrappedRepr[+O, +M] = Source[O, M]
-  type WrappedRepr[+O, +M] = Source[AckTup[O], M]
-  type Repr[+O, +M] = AckedSource[O, M]
+  type UnwrappedReprMat[+O, +M] = Source[O, M]
+  type WrappedReprMat[+O, +M] = Source[AckTup[O], M]
+  type ReprMat[+O, +M] = AckedSource[O, M]
 
   lazy val shape = new AckedSourceShape(wrappedRepr.shape)
   val akkaGraph = wrappedRepr
@@ -25,9 +31,6 @@ class AckedSource[+Out, +Mat](val wrappedRepr: Source[AckTup[Out], Mat]) extends
 
   def runWith[Mat2](sink: AckedSink[Out, Mat2])(implicit materializer: Materializer): Mat2 =
     wrappedRepr.runWith(sink.akkaSink)
-
-  def runFold[U](zero: U)(f: (U, Out) ⇒ U)(implicit materializer: Materializer): Future[U] =
-    runWith(AckedSink.fold(zero)(f))
 
   def runForeach(f: (Out) ⇒ Unit)(implicit materializer: Materializer): Future[Unit] =
     runWith(AckedSink.foreach(f))
@@ -48,16 +51,28 @@ class AckedSource[+Out, +Mat](val wrappedRepr: Source[AckTup[Out], Mat]) extends
     See Source.viaMat in akka-stream
     */
   def viaMat[T, Mat2, Mat3](flow: AckedGraph[AckedFlowShape[Out, T], Mat2])(combine: (Mat, Mat2) ⇒ Mat3): AckedSource[T, Mat3] =
-    andThen(wrappedRepr.viaMat(flow.akkaGraph)(combine))
+    andThenMat(wrappedRepr.viaMat(flow.akkaGraph)(combine))
 
   /**
     Transform the materialized value of this AckedSource, leaving all other properties as they were.
     */
-  def mapMaterializedValue[Mat2](f: (Mat) ⇒ Mat2): Repr[Out, Mat2] =
-    andThen(wrappedRepr.mapMaterializedValue(f))
+  def mapMaterializedValue[Mat2](f: (Mat) ⇒ Mat2): ReprMat[Out, Mat2] =
+    andThenMat(wrappedRepr.mapMaterializedValue(f))
 
-  protected def andThen[U, Mat2](next: WrappedRepr[U, Mat2]): Repr[U, Mat2] = {
+  protected def andThen[U](next: WrappedRepr[U] @uncheckedVariance): Repr[U] = {
     new AckedSource(next)
+  }
+
+  protected def andThenMat[U, Mat2](next: WrappedReprMat[U, Mat2]): ReprMat[U, Mat2] = {
+    new AckedSource(next)
+  }
+
+  override def withAttributes(attr: Attributes): Repr[Out] = andThen {
+    wrappedRepr.withAttributes(attr)
+  }
+
+  override def addAttributes(attr: Attributes): Repr[Out] = andThen {
+    wrappedRepr.addAttributes(attr)
   }
 }
 

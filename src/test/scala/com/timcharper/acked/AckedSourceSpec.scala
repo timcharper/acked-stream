@@ -121,7 +121,11 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
 
     describe("groupBy") {
       it("catches exceptions and propagates them to the promise") {
-        assertOperationCatches { (e, source) => new AckedSource(source.groupBy { n => throw e })}
+        assertOperationCatches { (e, source) =>
+          source.
+            groupBy(1, { n => throw e }).
+            mergeSubstreams
+        }
       }
     }
 
@@ -189,16 +193,45 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
       }
     }
 
+    describe("alsoToMat") {
+      it("acknowledges elements after they've hit both sinks") {
+        implicit val materializer = ActorMaterializer(
+          ActorMaterializerSettings(actorSystem).
+            withSupervisionStrategy(Supervision.resumingDecider : Supervision.Decider))
+        val oddFailure = new Exception("odd")
+        val evenFailure = new Exception("even")
+        val rejectOdds = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 1)
+            throw(oddFailure)
+        }
+        val rejectEvens = AckedSink.foreach { n: Int =>
+          if ((n % 2) == 0)
+            throw(evenFailure)
+        }
+        val (completions, result) = runLeTest(List(1,2)) { numbers =>
+          numbers.
+            alsoToMat(rejectEvens)(Keep.right).
+            toMat(rejectOdds) { (left, right) =>
+              left.flatMap(_ => right)(scala.concurrent.ExecutionContext.global)
+            }.
+            run()
+        }
+        completions shouldBe List(Some(Failure(oddFailure)), Some(Failure(evenFailure)))
+      }
+    }
+
     describe("splitWhen") {
       it("routes each element to a new acknowledged stream when the predicate matches") {
         implicit val materializer = ActorMaterializer()
         val (completions, result) = runLeTest(1 to 20) { src =>
           src.
             splitWhen(_ % 4 == 0).
-            map { src =>
-              src.runAck
+            fold(0) { case (r, i) =>
+              r + 1
             }.
-            runFold(0) { case (r, _) => r + 1 }
+            mergeSubstreams.
+            fold(0){ case (r, _) => r + 1 }.
+            runWith(AckedSink.head)
         }
         completions.distinct.shouldBe(List(Some(Success(()))))
         result shouldBe 6
@@ -214,7 +247,7 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
       val decider: Supervision.Decider = { (e: Throwable) =>
         if (e != ex) {
           unexpectedException = true
-          System.err.println(s"Stream error; message dropped. ${e.getMessage}", e)
+          println(s"Stream error; message dropped. ${e.getMessage.toString}")
         }
         Supervision.Resume
       }
