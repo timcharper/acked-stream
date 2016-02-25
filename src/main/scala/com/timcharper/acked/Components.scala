@@ -1,8 +1,10 @@
 package com.timcharper.acked
 
+import akka.NotUsed
 import akka.stream._
 import akka.stream.scaladsl._
 import akka.stream.stage._
+
 import scala.concurrent._
 
 object Components {
@@ -28,7 +30,7 @@ object Components {
 
     @return An AckedFlow which runs the bundling buffer component.
     */
-  def bundlingBuffer[T](size: Int, overflowStrategy: OverflowStrategy): AckedFlow[T, T, Unit] = AckedFlow {
+  def bundlingBuffer[T](size: Int, overflowStrategy: OverflowStrategy): AckedFlow[T, T, NotUsed] = AckedFlow {
     Flow[(Promise[Unit], T)].transform( () =>
       new BundlingBuffer(size, overflowStrategy)
     )

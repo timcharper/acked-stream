@@ -1,5 +1,6 @@
 package com.timcharper.acked
 
+import akka.NotUsed
 import akka.actor._
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
@@ -9,14 +10,15 @@ import akka.stream.Supervision
 import akka.stream.scaladsl.Keep
 import akka.stream.scaladsl.{Sink, Source}
 import org.scalatest.{FunSpec, Matchers}
+
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 import scala.util.Random
-import scala.util.{Try,Success,Failure}
+import scala.util.{Failure, Success, Try}
 
 class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
   describe("AckedSource operations") {
-    def runLeTest[T, U](input: scala.collection.immutable.Iterable[T] = Range(1, 20))(fn: AckedSource[T, Unit] => Future[U])(implicit materializer: Materializer) = {
+    def runLeTest[T, U](input: scala.collection.immutable.Iterable[T] = Range(1, 20))(fn: AckedSource[T, NotUsed] => Future[U])(implicit materializer: Materializer) = {
       val withPromise = (Stream.continually(Promise[Unit]) zip input).toList
       val promises = withPromise.map(_._1)
       implicit val ec = ExecutionContext.Implicits.global
@@ -35,7 +37,7 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
     def assertAcked(completions: Seq[Option[Try[Unit]]]) =
       asOptBool(completions) should be (List.fill(completions.length)(Some(true)))
 
-    def assertOperationCatches(fn: (Throwable, AckedSource[Int, Unit]) => AckedSource[_, Unit]) = {
+    def assertOperationCatches(fn: (Throwable, AckedSource[Int, NotUsed]) => AckedSource[_, NotUsed]) = {
       case object LeException extends Exception("le fail")
       implicit val materializer = ActorMaterializer(ActorMaterializerSettings(actorSystem).withSupervisionStrategy(Supervision.resumingDecider : Supervision.Decider))
       val (completions, result) = runLeTest(Range.inclusive(1,20)) { s => fn(LeException, s).runAck }
@@ -131,7 +133,7 @@ class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
 
     describe("conflate") {
       it("catches exceptions and propagates them to the promise") {
-        assertOperationCatches { (e, source) => source.conflate(n => throw e ){ (a: Int, b) => 5 }}
+        assertOperationCatches { (e, source) => source.conflateWithSeed(n => throw e ){ (a: Int, b) => 5 }}
       }
     }
     describe("log") {
