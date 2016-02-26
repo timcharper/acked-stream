@@ -1,21 +1,15 @@
 package com.timcharper.acked
 
+import akka.Done
 import akka.actor._
 import akka.stream.Attributes
 import akka.stream.Graph
 import akka.stream.SinkShape
 import akka.stream.scaladsl.{Flow, Keep, Sink}
+
 import scala.annotation.unchecked.uncheckedVariance
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
-
-// WARNING!!! Don't block inside of Runnable (Future) that uses this.
-private[acked] object SameThreadExecutionContext extends ExecutionContext {
-  def execute(r: Runnable): Unit =
-    r.run()
-  override def reportFailure(t: Throwable): Unit =
-    throw new IllegalStateException("problem in op_rabbit internal callback", t)
-}
 
 // Simply a container class which signals "this is safe to use for acknowledgement"
 case class AckedSink[-In, +Mat](akkaSink: Graph[SinkShape[AckTup[In]], Mat]) extends AckedGraph[AckedSinkShape[In], Mat] {
@@ -33,7 +27,7 @@ case object MessageNacked extends Exception(s"A published message was nacked by 
 
 object AckedSink {
   import FlowHelpers.propException
-  def foreach[T](fn: T => Unit) = AckedSink[T, Future[Unit]] {
+  def foreach[T](fn: T => Unit) = AckedSink[T, Future[Done]] {
     Sink.foreach { case (p, data) =>
       propException(p) { fn(data) }
       p.success(())
@@ -51,7 +45,7 @@ object AckedSink {
     }
   }
 
-  def ack[T] = AckedSink[T, Future[Unit]] {
+  def ack[T] = AckedSink[T, Future[Done]] {
     Sink.foreach { case (p, data) =>
       p.success(())
     }

@@ -433,14 +433,14 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef { self =>
   }
 
   /**
-    See FlowOps.conflate in akka-stream
+    See FlowOps.conflateWithSeed in akka-stream
 
     Conflated items are grouped together into a single message, the
     acknowledgement of which acknowledges every message that went into
     the group.
     */
-  def conflate[S](seed: (Out) ⇒ S)(aggregate: (S, Out) ⇒ S): Repr[S] = andThen {
-    wrappedRepr.conflate({ case (p, data) => (p, propException(p)(seed(data))) }) { case ((seedPromise, seedData), (p, element)) =>
+  def conflateWithSeed[S](seed: (Out) ⇒ S)(aggregate: (S, Out) ⇒ S): Repr[S] = andThen {
+    wrappedRepr.conflateWithSeed({ case (p, data) => (p, propException(p)(seed(data))) }) { case ((seedPromise, seedData), (p, element)) =>
       seedPromise.completeWith(p.future)
       (p, propException(p)(aggregate(seedData, element)))
     }
@@ -501,12 +501,6 @@ abstract class AckedFlowOps[+Out, +Mat] extends AnyRef { self =>
   protected def andThen[U](next: WrappedRepr[U]): Repr[U]
 
   // The compiler needs a little bit of help to know that this conversion is possible
-  @inline
-  private implicit def collapse2to1[U](next: wrappedRepr.Repr[_]#Repr[U]): wrappedRepr.Repr[U] = next.asInstanceOf[wrappedRepr.Repr[U]]
-
-  @inline
-  private implicit def collapse2to0[U](next: wrappedRepr.Repr[_]#Repr[AckTup[U]]): WrappedRepr[U] = next.asInstanceOf[WrappedRepr[U]]
-
   @inline
   implicit def collapse1to0[U, Mat2](next: wrappedRepr.Repr[AckTup[U]]): WrappedRepr[U] = next.asInstanceOf[WrappedRepr[U]]
 
@@ -627,19 +621,7 @@ abstract class AckedFlowOpsMat[+Out, +Mat] extends AckedFlowOps[Out, Mat] {
   }
 
   @inline
-  protected implicit def collapse1to0Mat[U, Mat2](next: wrappedRepr.ReprMat[AckTup[U], Mat2]): WrappedReprMat[U, Mat2] =
-    next.asInstanceOf[WrappedReprMat[U, Mat2]]
-
-  @inline
-  protected implicit def collapse2to1Mat[U, Mat2](next: wrappedRepr.ReprMat[_, _]#ReprMat[U, Mat2]): wrappedRepr.ReprMat[U, Mat2] = next.asInstanceOf[wrappedRepr.ReprMat[U, Mat2]]
-
-  @inline
-  protected implicit def collapse2MatTo0[U, Mat2](next: wrappedRepr.ReprMat[_, Mat2]#Repr[AckTup[U]]): WrappedReprMat[U, Mat2] =
-    next.asInstanceOf[WrappedReprMat[U, Mat2]]
-
-  @inline
   protected implicit def collapse2to0Mat[U, Mat2](next: wrappedRepr.ReprMat[_, _]#ReprMat[AckTup[U], Mat2]): WrappedReprMat[U, Mat2] = next.asInstanceOf[WrappedReprMat[U, Mat2]]
-
 
   // /**
   //   Combine the elements of current flow and the given Source into a
