@@ -4,7 +4,7 @@ organization := "com.timcharper"
 
 scalaVersion := "2.11.7"
 
-crossScalaVersions := Seq("2.11.7", "2.10.5")
+crossScalaVersions := Seq("2.11.7")
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream"  % "2.4.2",
