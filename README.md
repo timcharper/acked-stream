@@ -2,6 +2,19 @@
 
 Author: Tim Harper
 
+
+## Versions
+
+Please use the following table to guide you with Akka comptability:
+
+| acked-streams version | akka version                   |
+| --------------------- | ------------------------------ |
+| 2.0.x                 | akka-stream-experimental 2.0.x |
+| 2.1.x                 | akka-stream 2.4.x              |
+
+Note that `2.1.x` and onward do not support Scala `2.10`, as Akka `2.4.x` does
+not support it, either.
+
 ## Installation
 
 Acknowledged Streams builds against akka-stream-experimental `1.0`.
