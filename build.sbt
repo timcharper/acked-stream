@@ -6,9 +6,17 @@ scalaVersion := "2.11.8"
 
 crossScalaVersions := Seq("2.11.8", "2.12.1")
 
+val appProperties = {
+  val prop = new java.util.Properties()
+  IO.load(prop, new File("project/version.properties"))
+  prop
+}
+
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream"  % "2.4.16",
   "org.scalatest"     %% "scalatest"    % "3.0.1" % "test")
+
+version := appProperties.getProperty("version")
 
 homepage := Some(url("https://github.com/timcharper/acked-stream"))
 
