@@ -2,13 +2,13 @@ name := "acked-streams"
 
 organization := "com.timcharper"
 
-scalaVersion := "2.11.7"
+scalaVersion := "2.11.8"
 
-crossScalaVersions := Seq("2.11.7")
+crossScalaVersions := Seq("2.11.8", "2.12.1")
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream"  % "2.4.2",
-  "org.scalatest"     %% "scalatest"    % "2.2.1" % "test")
+  "com.typesafe.akka" %% "akka-stream"  % "2.4.16",
+  "org.scalatest"     %% "scalatest"    % "3.0.1" % "test")
 
 homepage := Some(url("https://github.com/timcharper/acked-stream"))
 

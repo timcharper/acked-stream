@@ -6,7 +6,7 @@ package object acked {
 
   import scala.concurrent.Promise
 
-  type AckTup[T] = (Promise[Unit], T)
+  type AckTup[+T] = (Promise[Unit], T)
 
   // WARNING!!! Don't block inside of Runnable (Future) that uses this.
   private[acked] object SameThreadExecutionContext extends ExecutionContext {

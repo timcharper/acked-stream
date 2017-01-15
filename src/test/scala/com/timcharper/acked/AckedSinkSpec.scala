@@ -19,6 +19,7 @@ class AckedSinkSpec extends FunSpec with Matchers with ActorSystemTest {
         Try(await(p.future)) match {
           case Success(_) => None
           case Failure(LeException(msg)) => Some(msg)
+          case Failure(e) => throw e
         }
       } should be (Seq(None, Some("didn't complete"), Some("didn't complete"), Some("didn't complete"), Some("didn't complete")))
     }
