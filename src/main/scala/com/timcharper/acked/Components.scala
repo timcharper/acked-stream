@@ -31,8 +31,8 @@ object Components {
     @return An AckedFlow which runs the bundling buffer component.
     */
   def bundlingBuffer[T](size: Int, overflowStrategy: OverflowStrategy): AckedFlow[T, T, NotUsed] = AckedFlow {
-    Flow[(Promise[Unit], T)].transform( () =>
-      new BundlingBuffer(size, overflowStrategy)
+    Flow[(Promise[Unit], T)].via(
+      BundlingBuffer(size, overflowStrategy)
     )
   }
 
@@ -40,7 +40,7 @@ object Components {
   case class BufferOverflowException(msg: String) extends BundlingBufferException(msg)
   case class DroppedException(msg: String) extends BundlingBufferException(msg)
 
-  case class BundlingBuffer[U](size: Int, overflowStrategy: OverflowStrategy) extends DetachedStage[(Promise[Unit], U), (Promise[Unit], U)] {
+  case class BundlingBuffer[U](size: Int, overflowStrategy: OverflowStrategy) extends GraphStage[FlowShape[(Promise[Unit], U), (Promise[Unit], U)]] {
     type T = (Promise[Unit], U)
 
     // import OverflowStrategy._
