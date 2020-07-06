@@ -13,7 +13,7 @@ trait ActorSystemTest extends Suite with org.scalatest.BeforeAndAfterEachTestDat
   }
 
   override def afterEach(testData: TestData): Unit = {
-    actorSystem.shutdown()
+    actorSystem.terminate()
     super.afterEach(testData)
   }
 

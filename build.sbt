@@ -4,7 +4,7 @@ organization := "com.timcharper"
 
 scalaVersion := "2.12.11"
 
-crossScalaVersions := Seq("2.11.8", "2.12.11", "2.13.2")
+crossScalaVersions := Seq("2.12.11", "2.13.2")
 
 val appProperties = {
   val prop = new java.util.Properties()
@@ -14,7 +14,7 @@ val appProperties = {
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream"  % "2.5.31",
-  "org.scalatest"     %% "scalatest"    % "3.0.1" % "test")
+  "org.scalatest"     %% "scalatest"    % "3.1.1" % "test")
 
 version := appProperties.getProperty("version")
 
