@@ -47,13 +47,13 @@ class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
         // 500 elements went into it. Significantly less should have made it through.
         count should be < 100
 
+        // Every unique item should have made it through at least once.
+        seen.toList.sorted should be(1 to 50)
+
         // Every promise should be acknowledged
         for ((p, i) <- data.map(_._1).zipWithIndex) {
           (p.future.isCompleted, i) shouldBe (true, i)
         }
-
-        // Every unique item should have made it through at least once.
-        seen.toList.sorted should be(1 to 50)
       }
     }
 

@@ -105,6 +105,10 @@ object Components {
 
         private val inHandler: InHandler =
           new InHandler {
+            override def onUpstreamFinish(): Unit = {
+              if (buffer.isEmpty) complete(out)
+            }
+
             override def onPush(): Unit = {
               if (bufferIsFull) {
                 overflowStrategy match {
@@ -136,13 +140,16 @@ object Components {
                   case Backpressure => ()
                 }
               } else grabAndPull()
+              if (isAvailable(out) && buffer.nonEmpty) push(out, dequeue())
             }
+
           }
 
         private val outHandler: OutHandler =
           new OutHandler {
             override def onPull(): Unit = {
               if (buffer.nonEmpty) push(out, dequeue())
+              else if (isClosed(in)) complete(out)
             }
           }
 
