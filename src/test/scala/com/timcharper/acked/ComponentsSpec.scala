@@ -44,13 +44,13 @@ class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
 
         val count = await(f, 20.seconds)
 
+        // 500 elements went into it. Significantly less should have made it through.
+        count should be < 100
+
         // Every promise should be acknowledged
         for ((p, i) <- data.map(_._1).zipWithIndex) {
           (p.future.isCompleted, i) shouldBe (true, i)
         }
-
-        // 500 elements went into it. Significantly less should have made it through.
-        count should be < 100
 
         // Every unique item should have made it through at least once.
         seen.toList.sorted should be(1 to 50)

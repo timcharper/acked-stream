@@ -32,13 +32,11 @@ object Components {
     @return An AckedFlow which runs the bundling buffer component.
   **/
   def bundlingBuffer[T](
-      size: Int,
-      overflowStrategy: OverflowStrategy
+    size: Int,
+    overflowStrategy: OverflowStrategy
   ): AckedFlow[T, T, NotUsed] =
     AckedFlow {
-      Flow[(Promise[Unit], T)].via(
-        BundlingBuffer(size, overflowStrategy)
-      )
+      Flow[(Promise[Unit], T)].via(BundlingBuffer(size, overflowStrategy))
     }
 
   sealed abstract class BundlingBufferException(msg: String)
@@ -57,10 +55,8 @@ object Components {
   private val Backpressure = OverflowStrategy.backpressure
   private val Fail = OverflowStrategy.fail
 
-  case class BundlingBuffer[U](
-      size: Int,
-      overflowStrategy: OverflowStrategy
-  ) extends GraphStage[FlowShape[(Promise[Unit], U), (Promise[Unit], U)]] {
+  case class BundlingBuffer[U](size: Int, overflowStrategy: OverflowStrategy)
+      extends GraphStage[FlowShape[(Promise[Unit], U), (Promise[Unit], U)]] {
     type T = (Promise[Unit], U)
 
     val in = Inlet[T]("BundlingBuffer.in")
@@ -107,16 +103,10 @@ object Components {
           pull(in)
         }
 
-        private def tryPush() = {
-          if (buffer.nonEmpty && isAvailable(out))
-            push(out, dequeue())
-          if (!hasBeenPulled(in)) pull(in)
-        }
-
         private val inHandler: InHandler =
           new InHandler {
             override def onPush(): Unit = {
-              if (bufferIsFull)
+              if (bufferIsFull) {
                 overflowStrategy match {
                   case DropHead =>
                     dropped(buffer.remove(0))
@@ -125,7 +115,7 @@ object Components {
                     dropped(buffer.remove(buffer.length - 1))
                     grabAndPull()
                   case DropBuffer =>
-                    dropped(buffer: _*)
+                    dropped(buffer.toSeq: _*)
                     buffer.clear()
                     grabAndPull()
                   case DropNew =>
@@ -136,7 +126,8 @@ object Components {
                     )
                     pull(in)
                   case Fail =>
-                    dropped(buffer: _*)
+                    dropped(buffer.toSeq: _*)
+                    buffer.clear()
                     failStage(
                       new BufferOverflowException(
                         s"Buffer overflow (max capacity was: $size)!"
@@ -144,16 +135,18 @@ object Components {
                     )
                   case Backpressure => ()
                 }
-              else grabAndPull()
-
-              tryPush()
+              } else grabAndPull()
             }
           }
 
         private val outHandler: OutHandler =
           new OutHandler {
-            override def onPull(): Unit = tryPush()
+            override def onPull(): Unit = {
+              if (buffer.nonEmpty) push(out, dequeue())
+            }
           }
+
+        override def preStart(): Unit = pull(in)
 
         setHandler(in, inHandler)
         setHandler(out, outHandler)
