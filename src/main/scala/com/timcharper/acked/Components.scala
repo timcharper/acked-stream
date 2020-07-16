@@ -70,6 +70,9 @@ object Components {
         private val buffer: Buffer[U] = Buffer.empty
         private def bufferIsFull: Boolean = buffer.length >= size
 
+        private var isHoldingUpstream = false
+        private var isHoldingDownstream = false
+
         private def dequeue(): T = {
           val v = buffer.remove(0)
           (promises.remove(v).get, v)
@@ -98,15 +101,24 @@ object Components {
               )
           }
 
+        private def emitAll(): Unit = {
+          val vs = buffer.toSeq.map { v =>
+            (promises.remove(v).get, v)
+          }
+          buffer.clear()
+          if (vs.nonEmpty) emitMultiple(out, vs)
+        }
+
         private def grabAndPull() = {
-          enqueue(grab(in))
-          pull(in)
+          if (isAvailable(in)) enqueue(grab(in))
+          if (!hasBeenPulled(in)) pull(in)
         }
 
         private val inHandler: InHandler =
           new InHandler {
             override def onUpstreamFinish(): Unit = {
-              if (buffer.isEmpty) complete(out)
+              emitAll()
+              completeStage()
             }
 
             override def onPush(): Unit = {
@@ -128,7 +140,7 @@ object Components {
                         s"message was dropped due to buffer overflow; size = $size"
                       )
                     )
-                    pull(in)
+                    if (!hasBeenPulled(in)) pull(in)
                   case Fail =>
                     dropped(buffer.toSeq: _*)
                     buffer.clear()
@@ -137,10 +149,15 @@ object Components {
                         s"Buffer overflow (max capacity was: $size)!"
                       )
                     )
-                  case Backpressure => ()
+                  case Backpressure =>
+                    isHoldingUpstream = true
                 }
               } else grabAndPull()
-              if (isAvailable(out) && buffer.nonEmpty) push(out, dequeue())
+              if (isHoldingDownstream && isAvailable(out) && buffer.nonEmpty) {
+                push(out, dequeue())
+                isHoldingUpstream = false
+                isHoldingDownstream = false
+              }
             }
 
           }
@@ -148,8 +165,15 @@ object Components {
         private val outHandler: OutHandler =
           new OutHandler {
             override def onPull(): Unit = {
-              if (buffer.nonEmpty) push(out, dequeue())
-              else if (isClosed(in)) complete(out)
+              if (isClosed(in)) completeStage()
+              else if (buffer.isEmpty) isHoldingDownstream = true
+              else {
+                push(out, dequeue())
+                if (isHoldingUpstream) {
+                  isHoldingUpstream = false
+                  pull(in)
+                }
+              }
             }
           }
 
