@@ -105,8 +105,8 @@ object Components {
           val vs = buffer.toSeq.map { v =>
             (promises.remove(v).get, v)
           }
+          if (vs.nonEmpty) emitMultiple(out, vs.iterator)
           buffer.clear()
-          if (vs.nonEmpty) emitMultiple(out, vs)
         }
 
         private def grabAndPull() = {
