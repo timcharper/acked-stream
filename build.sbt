@@ -4,7 +4,7 @@ organization := "com.timcharper"
 
 scalaVersion := "2.11.8"
 
-crossScalaVersions := Seq("2.11.8", "2.12.1")
+crossScalaVersions := Seq("2.11.8", "2.12.1", "2.13.4")
 
 val appProperties = {
   val prop = new java.util.Properties()

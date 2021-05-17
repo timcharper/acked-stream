@@ -40,7 +40,7 @@ object Components {
   case class BufferOverflowException(msg: String) extends BundlingBufferException(msg)
   case class DroppedException(msg: String) extends BundlingBufferException(msg)
 
-  case class BundlingBuffer[U](size: Int, overflowStrategy: OverflowStrategy) extends DetachedStage[(Promise[Unit], U), (Promise[Unit], U)] {
+  case class BundlingBuffer[U](size: Int, overflowStrategy: OverflowStrategy) extends GraphStage[FlowShape[(Promise[Unit], U), (Promise[Unit], U)]] {
     type T = (Promise[Unit], U)
 
     // import OverflowStrategy._
@@ -64,7 +64,7 @@ object Components {
       }
     }
 
-    override def onPush(elem: T, ctx: DetachedContext[T]): UpstreamDirective =
+    /*override def onPush(elem: T, ctx: DetachedContext[T]): UpstreamDirective =
       if (ctx.isHoldingDownstream) ctx.pushAndPull(elem)
       else enqueueAction(ctx, elem)
 
@@ -80,7 +80,7 @@ object Components {
 
     override def onUpstreamFinish(ctx: DetachedContext[T]): TerminationDirective =
       if (buffer.isEmpty) ctx.finish()
-      else ctx.absorbTermination()
+      else ctx.absorbTermination()*/
 
     /* we have to pull these out again and make the capitals for
      * pattern matching. Akka is the ultimate hider of useful
@@ -138,7 +138,7 @@ object Components {
               DroppedException(
                 s"message was dropped due to buffer overflow; size = $size"))
             ctx.fail(
-              new BufferOverflowException(s"Buffer overflow (max capacity was: $size)!"))
+              BufferOverflowException(s"Buffer overflow (max capacity was: $size)!"))
           }
           else {
             enqueue(elem)
@@ -148,6 +148,29 @@ object Components {
           throw(new RuntimeException(s"BundlingBuffer unsupported overflow strategy: ${overflowStrategy}."))
       }
     }
+
+    private val input = Inlet[(Promise[Unit], U)]("")
+    private val output = Outlet[(Promise[Unit], U)]("")
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic = new GraphStageLogic(shape) {
+      setHandler(input, new AbstractInOutHandler {
+        override def onPush(): Unit = {
+          if (ctx.isHoldingDownstream) ctx.pushAndPull(elem)
+          else enqueueAction(ctx, elem)
+        }
+
+        override def onPull(): Unit = {
+          if (ctx.isFinishing) {
+            val elem = dequeue()
+            if (buffer.isEmpty) ctx.pushAndFinish(elem)
+            else ctx.push(elem)
+          } else if (ctx.isHoldingUpstream) ctx.pushAndPull(dequeue())
+          else if (buffer.isEmpty) ctx.holdDownstream()
+          else ctx.push(dequeue())
+        }
+      })}
+
+    override def shape: FlowShape[(Promise[Unit], U), (Promise[Unit], U)] = FlowShape[(Promise[Unit], U), (Promise[Unit], U)](input, output)
   }
 
 }
