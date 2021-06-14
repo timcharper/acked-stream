@@ -1,13 +1,14 @@
 package com.timcharper.acked
 
-import scala.concurrent.{Promise,Future}
+import scala.concurrent.{Promise, Future}
 
 object FlowHelpers {
   // propagate exception, doesn't recover
   def propFutureException[T](p: Promise[Unit])(f: => Future[T]): Future[T] = {
     implicit val ec = SameThreadExecutionContext
     val result = propException(p)(f)
-    result.onFailure { case e => p.failure(e) }
+    result.failed
+      .foreach { case e => p.failure(e) }
     result
   }
 
@@ -19,7 +20,7 @@ object FlowHelpers {
     } catch {
       case e: Throwable =>
         p.failure(e)
-        throw(e)
+        throw (e)
     }
   }
 
