@@ -9,14 +9,15 @@ import akka.stream.Materializer
 import akka.stream.Supervision
 import akka.stream.scaladsl.Keep
 import akka.stream.scaladsl.{Sink, Source}
-import org.scalatest.{FunSpec, Matchers}
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 import scala.util.Random
 import scala.util.{Failure, Success, Try}
+import org.scalatest.funspec.AnyFunSpec
+import org.scalatest.matchers.should.Matchers
 
-class AckedSourceSpec extends FunSpec with Matchers with ActorSystemTest {
+class AckedSourceSpec extends AnyFunSpec with Matchers with ActorSystemTest {
   describe("AckedSource operations") {
     def runLeTest[T, U](input: scala.collection.immutable.Iterable[T] =
                           Range(1, 20))(
