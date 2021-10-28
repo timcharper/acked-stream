@@ -1,6 +1,5 @@
 package com.timcharper.acked
 
-import org.scalatest.{FunSpec, Matchers}
 
 import akka.stream.Attributes
 import akka.stream.OverflowStrategy
@@ -11,8 +10,10 @@ import scala.concurrent.Promise
 import scala.collection.mutable._
 import scala.util.{Try, Success, Failure}
 import scala.concurrent.duration._
+import org.scalatest.funspec.AnyFunSpec
+import org.scalatest.matchers.should.Matchers
 
-class ComponentsSpec extends FunSpec with Matchers with ActorSystemTest {
+class ComponentsSpec extends AnyFunSpec with Matchers with ActorSystemTest {
   trait Fixtures {
     implicit val materializer = akka.stream.ActorMaterializer()
 

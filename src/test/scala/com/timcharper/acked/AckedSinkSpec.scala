@@ -2,11 +2,12 @@ package com.timcharper.acked
 
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
-import org.scalatest.{FunSpec, Matchers}
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
+import org.scalatest.funspec.AnyFunSpec
+import org.scalatest.matchers.should.Matchers
 
-class AckedSinkSpec extends FunSpec with Matchers with ActorSystemTest {
+class AckedSinkSpec extends AnyFunSpec with Matchers with ActorSystemTest {
 
   describe("head") {
     it("acknowledges only the first element") {
