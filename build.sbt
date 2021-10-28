@@ -2,9 +2,9 @@ name := "acked-streams"
 
 organization := "com.timcharper"
 
-scalaVersion := "2.13.2"
+scalaVersion := "2.13.6"
 
-crossScalaVersions := Seq("2.12.11", "2.13.2")
+crossScalaVersions := Seq("2.12.15", "2.13.6")
 
 val appProperties = {
   val prop = new java.util.Properties()
