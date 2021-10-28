@@ -13,7 +13,7 @@ val appProperties = {
 }
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-stream"  % "2.5.31",
+  "com.typesafe.akka" %% "akka-stream"  % "2.6.17",
   "org.scalatest"     %% "scalatest"    % "3.1.1" % "test")
 
 version := appProperties.getProperty("version")
